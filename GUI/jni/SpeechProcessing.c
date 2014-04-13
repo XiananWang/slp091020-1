@@ -33,44 +33,6 @@ typedef struct Variables {
 
 } Variables;
 
-/*typedef struct TVPhamVAD {
-	float D,Pl,Ph,Px;
-	int Na,WinSize,Nf;
-	float Dw,Dc,Ds,PreDs;
-	float *Dbuf,*Dbufsort;
-	float Tqb,epsqb,alpha,aDs;
-	float PreTqb;
-	int qb;
-	int Firstrunflag;
-	int DbufInd;
-	int interVadDec,NoVoiceCount;
-	int VADflag;
-	int VadDec;
-}TVPhamVAD;*/
-
-/*void initialTVPhamVAD()
-{
-	Variables* inParam = (Variables*)malloc(sizeof(Variables));
-	TVPhamVAD* VADRefer = (TVPhamVAD*) malloc(sizeof(TVPhamVAD));
-	VADRefer->WinSize = inParam->windowSize;
-	VADRefer->Nf = (inParam->frequency/VADRefer->WinSize)/2;
-	VADRefer->epsqb = 0.001;
-	VADRefer->alpha = 0.975;
-	VADRefer->aDs = 0.65;
-	VADRefer->Na = (VADRefer->WinSize)/2;
-	VADRefer->Dbuf = (float*) calloc(VADRefer->Nf,sizeof(float));
-	VADRefer->Dbufsort = (float*) calloc(VADRefer->Nf,sizeof(float));
-	VADRefer->DbufInd = 0;
-	VADRefer->PreDs = 0;
-	VADRefer->PreTqb = 0;
-	VADRefer->Firstrunflag = 1;
-	VADRefer->VADflag = 0;
-	VADRefer->NoVoiceCount = 0;
-	VADRefer->VadDec = 0;
-	VADRefer->interVadDec = 0;
-	VADRefer->NoVoiceCount = 0;
-}*/
-
 static const float LD[] =
 {
 	0.015404109327027373,
@@ -107,19 +69,19 @@ void DecideVad(Variables *inParam);
 
 void DecideVad(Variables *inParam)
 {
-	//TVPhamVAD* VADRefer = (TVPhamVAD*) malloc(sizeof(TVPhamVAD));
-	//Variables* inParam = (Variables*) memoryPointer;
-	float D,Pl,Ph,Px;
+	float D,Px;
+	float Pl,Ph;
 	float D_test;
 	float Dw,Dc,Ds;
 	float Tqb;
 	int qb;
 	float temp;
 	int i,j;
-	/*int winSize = 40;
-	int localWinSize;
-	localWinSize = winSize/2;
-	Nf = 8000/40/2;*/
+	int Na,winSize,Nf;
+
+	winSize = inParam->stepSize;
+	Na = winSize/2;
+	Nf = inParam->frequency/winSize/2;
 
 	Px = 0;
 
@@ -128,39 +90,43 @@ void DecideVad(Variables *inParam)
 	int marker = 0;
 	//----------
 
-	for(i=0;i<inParam->windowSize;i++)
+	for(i=0;i<winSize;i++)
 	{
-		Px += (inParam->inputBuffer[i])*(inParam->inputBuffer[i]);
+		Px += (inParam->inputBuffer[inParam->overlap+i])*(inParam->inputBuffer[inParam->overlap+i]);
 	}
 
 	Pl=0;
 	Ph=0;
 
-	for(i=0;i<inParam->Na;i++)
+	for(i=0;i<Na;i++)
 	{
 		Pl += (inParam->XL[i])*(inParam->XL[i]);
 		Ph += (inParam->XH[i])*(inParam->XH[i]);
 	}
 
-	D = fabs(Pl-Ph)/(float)(inParam->Na);
-	inParam->outputBuffer[4] = D;
-	Dw = D*(0.5 + (16/logf(2.0))*log(1+2*Px));
-	inParam->outputBuffer[3] = Dw;
+	D = (Pl-Ph)/(float)(Na);
+	//D = (inParam->Pl - inParam->Ph)/(1.0*inParam->Na);
+	if(D<0) D = -1 * D; // marker
+	//inParam->outputBuffer[4] = D;
+	Dw = D*(0.5 + (16/log(2.0))*log(1+2*Px)); // marker
+	//inParam->outputBuffer[5] = Dw;
 	Dw = -2*Dw;
+
 	Dc = (1-exp(Dw))/(1+exp(Dw));
 	Ds = Dc + inParam->PreDs*0.65;
-	inParam->outputBuffer[1] = Dc;
-	inParam->outputBuffer[2] = Ds;
 	inParam->PreDs = Ds;
 	inParam->Dbuf[inParam->DbufInd++] = Ds;
-	if((inParam->DbufInd)>=(inParam->Nf))
-		inParam->DbufInd = 0;
 
-	for(i=0;i<inParam->Nf;i++)
+	if((inParam->DbufInd)>=Nf)
+	{
+		inParam->DbufInd = 0;
+	}
+
+	for(i=0;i<Nf;i++)
 	{
 		inParam->Dbufsort[i] = inParam->Dbuf[i];
 	}
-	for(i=(inParam->Nf)-1;i>0;i--)
+	for(i=Nf-1;i>0;i--) //marker
 	{
 		for(j=0;j<i;j++)
 		{
@@ -174,31 +140,20 @@ void DecideVad(Variables *inParam)
 	}
 	qb = 4;
 
-	/*inParam->outputBuffer[1] = inParam->Dbufsort[qb];
-	inParam->outputBuffer[2] = inParam->Dbufsort[qb-4];
-	inParam->outputBuffer[3] = inParam->Dbufsort[qb] - inParam->Dbufsort[qb-4];
-	inParam->outputBuffer[4] = inParam->epsqb;
-	inParam->outputBuffer[5] = qb;
-	inParam->outputBuffer[6] = ((inParam->Nf)-1);*/
-
-	while((((inParam->Dbufsort[qb])-(inParam->Dbufsort[qb-4]))<(inParam->epsqb)) && (qb<(inParam->Nf)-1))
+	while((((inParam->Dbufsort[qb])-(inParam->Dbufsort[qb-4]))<(inParam->epsqb)) && (qb<Nf-1))
 	{
 		qb++;
 	}
-
-	inParam->outputBuffer[7] = qb;
+	inParam->outputBuffer[3] = qb;
+	inParam->outputBuffer[4] = Nf;
 
 	Tqb = inParam->Dbufsort[qb];
 	if(inParam->Firstrunflag)
 		inParam->Firstrunflag = 0;
 	else
-		Tqb = (inParam->alpha)*(inParam->PreTqb) + (1-inParam->alpha)*(inParam->Tqb);
+		Tqb = (inParam->alpha)*(inParam->PreTqb) + (1-inParam->alpha)*(Tqb);
 
 	inParam->PreTqb = Tqb;
-
-	inParam->outputBuffer[8] = Ds;
-	inParam->outputBuffer[9] = Tqb;
-	inParam->outputBuffer[10] = Ds - Tqb;
 
 	if(Ds>Tqb)
 		inParam->interVadDec = 1;
@@ -227,7 +182,6 @@ void DecideVad(Variables *inParam)
 	}
 	inParam->monitor++;
 	inParam->outputBuffer[0] = inParam->VadDec;
-	//inParam->outputBuffer[inParam->monitor++] = inParam->VADflag;
 }
 
 static void
@@ -240,9 +194,11 @@ compute(JNIEnv *env, jobject thiz,  jlong memoryPointer, jshortArray input)
 
     short *_in = (*env)->GetShortArrayElements(env, input, NULL);
 
-    int i,j,overlap, stepsize,order;
+    int i,j,overlap, stepsize,order,index;
     order = 12;
     stepsize = inParam->stepSize;
+    float* xL=(float*)calloc(stepsize,sizeof(float));
+	float* xH=(float*)calloc(stepsize,sizeof(float));
     	float XL_temp = 0;
     	float XH_temp = 0;
 
@@ -261,6 +217,7 @@ compute(JNIEnv *env, jobject thiz,  jlong memoryPointer, jshortArray input)
     	for (i=0; i<stepsize; i++)
     	{
     		inParam->inputBuffer[overlap + i] = _in[i]/32768.0;
+    		//inParam->outputBuffer[i] = inParam->inputBuffer[overlap + i];
     	}
 
     	(*env)->ReleaseShortArrayElements(env, input, _in, 0);
@@ -276,8 +233,12 @@ compute(JNIEnv *env, jobject thiz,  jlong memoryPointer, jshortArray input)
     		XH_temp = 0;
     		for(j=0;j<order;j++)
     		{
-    			XL_temp += inParam->inputBuffer[overlap + i - j]*LD[j];
-    			XH_temp += inParam->inputBuffer[overlap + i - j]*HD[j];
+    			index = overlap + i - j;
+    			if(index>=0)
+    			{
+    				XL_temp += inParam->inputBuffer[overlap + i - j]*LD[j];
+    				XH_temp += inParam->inputBuffer[overlap + i - j]*HD[j];
+    			}
     		}
 
     		if(i%2 == 0)
@@ -300,7 +261,6 @@ compute(JNIEnv *env, jobject thiz,  jlong memoryPointer, jshortArray input)
 		}*/
 
 
-
     stop(inParam->timer);
 }
 
@@ -311,22 +271,25 @@ initialize(JNIEnv* env, jobject thiz, jint freq, jint stepsize, jint windowsize)
     inParam->timer = newTimer();
     inParam->frequency = freq;
     inParam->stepSize = stepsize;
-    inParam->windowSize = 40;
-    //inParam->windowsize = windowsize;
-    inParam->overlap = 40-stepsize;
+    inParam->windowSize = windowsize;
+    inParam->overlap = windowsize-stepsize;
     //inParam->overlap = windowsize-stepsize;
-    inParam->inputBuffer = (float*) calloc(40,sizeof(float));
+    inParam->inputBuffer = (float*) calloc(windowsize,sizeof(float));
     //inParam->inputBuffer = (float*) calloc(windowsize,sizeof(float));
     //inParam->outputBuffer = (float*) malloc(stepsize*sizeof(float));
     inParam->outputBuffer = (float*) calloc(stepsize,sizeof(float));
     //-----------------------TVPhamVAD-----------------------------------------
+    int winSize = inParam->stepSize;
+	int Na = winSize/2;
+	int Nf = inParam->frequency/winSize/2;
+
 	inParam->Nf = (inParam->frequency/inParam->windowSize)/2;
 	inParam->epsqb = 0.001;
 	inParam->alpha = 0.975;
 	inParam->aDs = 0.65;
 	inParam->Na = (inParam->windowSize)/2;
-	inParam->Dbuf = (float*) calloc(inParam->Nf,sizeof(float));
-	inParam->Dbufsort = (float*) calloc(inParam->Nf,sizeof(float));
+	inParam->Dbuf = (float*) calloc(Nf,sizeof(float));
+	inParam->Dbufsort = (float*) calloc(Nf,sizeof(float));
 	inParam->DbufInd = 0;
 	inParam->PreDs = 0;
 	inParam->PreTqb = 0;
@@ -385,6 +348,7 @@ getOutput(JNIEnv* env, jobject thiz, jlong memoryPointer, jint outputSelect)
         for(i=0;i<inParam->stepSize;i++)
         {
             _output[i] = inParam->inputBuffer[inParam->overlap+i];
+        	//_output[i] = 6;
         }
 
     } else {                //Case 2 - Processed output signal
@@ -393,6 +357,7 @@ getOutput(JNIEnv* env, jobject thiz, jlong memoryPointer, jint outputSelect)
         for(i=0;i<inParam->stepSize;i++)
         {
             _output[i] = inParam->outputBuffer[i];
+        	//_output[i] = 7;
         }
     }
 
