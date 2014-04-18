@@ -3,11 +3,35 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "Timer.h"
+#include "Transform.c"
+#include "Transforms.h"
+
+#define PI 3.14159265
+
+typedef struct Melfcc {
+    float wintime;
+    float hoptime;
+    int numcep;
+    float lifterexp;
+    int sumpower;
+    float preemph;
+    int dither;
+    int minfreq;
+    int maxfreq;
+    int nbands;
+    int bwidth;
+    int dcttype;
+    int usecmp;
+    int modelorder;
+    int boraden;
+    int useenergy;
+} Melfcc;
 
 typedef struct Variables {
     Timer* timer;
     float* inputBuffer;
     float* outputBuffer;
+    float* testBuffer;
     int frequency;
     int stepSize;
     int windowSize;
@@ -30,8 +54,15 @@ typedef struct Variables {
 	float* XH;
 	//-----------------Xianan Define Monitor-------
 	int monitor;
-
+	//-----------------Melfcc----------------------
+	Melfcc* inMelfcc;
 } Variables;
+
+typedef struct PowerSpec{
+	float mel_error;
+	float* fft_outputBuffer;
+	float size;
+}PowerSpec;
 
 static const float LD[] =
 {
@@ -66,6 +97,238 @@ static const float HD[] =
 };
 
 void DecideVad(Variables *inParam);
+void melfcc(Variables *inParam);
+PowerSpec* powspec(Variables *inParam,float winpts,float steppts);
+void audspec(void);
+float* hanning(int winpts,Variables *inParam);
+void melfcc_Initial(Melfcc* inMelfcc, int freq);
+PowerSpec* newPowerSpec(int size);
+float hz2mel(int f,int htk);
+float mel2hz(float z,int htk);
+
+void melfcc(Variables *inParam)
+{
+	int i,j,index;
+	int stepsize,order,overlap;
+	float pre_temp = 0;
+	float pre_coeff[2] = {};
+	float winpts;
+	float steppts;
+	int sr;
+	int zero_num;
+	float wintime,hoptime;
+	float* pre_emp_buffer = (float *)calloc(inParam->windowSize,sizeof(float));
+
+	stepsize = inParam->stepSize;
+	overlap = inParam->overlap;
+	order = 2;
+	pre_coeff[0] = 1;
+	pre_coeff[1] = 0;
+
+	wintime = inParam->inMelfcc->wintime;
+	hoptime = inParam->inMelfcc->hoptime;
+	sr = inParam->frequency;
+
+	winpts = roundf(wintime*sr);
+	steppts = roundf(hoptime*sr);
+	zero_num = winpts - steppts;
+
+	/*for(i=0;i<inParam->windowSize;i++)
+	{
+		pre_temp = 0;
+		for(j=0;j<order;j++)
+		{
+			index = overlap + i - j;
+			if(index >= 0)
+			{
+				if(index >= zero_num)
+				{
+					pre_temp += inParam->inputBuffer[index-zero_num]*pre_coeff[j];
+				}
+			}
+		}
+		pre_emp_buffer[i] = pre_temp;
+	}*/
+
+	powspec(inParam,winpts,steppts);
+}
+
+PowerSpec* powspec(Variables *inParam,float winpts,float steppts)
+{
+	float steptime;
+	float wintime;
+	int sr;
+	int near_temp;
+	float NFFT;
+	float* WINDOW;
+	int NOVERLAP,SAMPRATE;
+	int i,j;
+	float y_aft_wind;
+	int z_pad_size;
+	int select;
+
+	/*inParam->testBuffer[0] = inParam->windowSize;
+	inParam->testBuffer[1] = inParam->overlap;
+	inParam->testBuffer[2] = inParam->stepSize;*/
+
+	NFFT = pow(2,(ceil(log(winpts)/log(2))));
+	Transform* inTransform = newTransform(1, NFFT);
+	WINDOW = hanning(winpts,inParam);
+	NOVERLAP = winpts - steppts;
+	SAMPRATE = sr;
+
+	float* z_pad_inputBuffer = (float *)calloc(inParam->windowSize,sizeof(float));
+
+	for(i = 0;i<inParam->windowSize;i++)
+	{
+		z_pad_inputBuffer[i] = inParam->inputBuffer[i]*WINDOW[i];
+	}
+
+	inTransform = newTransform(1, NFFT);
+	inTransform ->doTransform(inTransform, z_pad_inputBuffer);
+
+	select = NFFT/2;
+
+	//float* ds_real_Buffer = (float *)calloc(select+1,sizeof(float));
+	//float* ds_imag_Buffer = (float *)calloc(select+1,sizeof(float));
+	float* fft_outputBuffer = (float *)calloc(select+1,sizeof(float));
+	PowerSpec* inPowerSpec = newPowerSpec(select+1);
+	float ds_real;
+	float ds_imag;
+	float mel_error;
+
+	mel_error = 0;
+
+	for(i = 0;i<=select;i++)
+	{
+		ds_real = inTransform->real[i];
+		ds_imag = inTransform->imaginary[i];
+		inPowerSpec->fft_outputBuffer[i] = ds_real * ds_real + ds_imag * ds_imag;
+		inPowerSpec->mel_error += fft_outputBuffer[i];
+	}
+
+	inPowerSpec->size = select+1;
+
+	destroyTransform(&inTransform);
+
+	return inPowerSpec;
+}
+
+void audspec(Variables* inParam,PowerSpec* inPowerSpec)
+{
+	int nfreqs,nfft;
+	int nfilts,sr,width;
+	int minfreq,maxfreq;
+	int htkmel = 0;
+	float minmel,maxmel,binfrqs;
+
+	nfreqs = inPowerSpec->size;
+	nfft = (nfreqs-1)*2;
+	nfilts = inParam->inMelfcc->nbands;
+	sr = inParam->frequency;
+	width = inParam->inMelfcc->bwidth;
+	minfreq = inParam->inMelfcc->minfreq;
+	maxfreq = inParam->inMelfcc->maxfreq;
+
+	minmel = hz2mel(minfreq,htkmel);
+	maxmel = hz2mel(maxfreq,htkmel);
+
+	binfrqs = mel2hz();
+}
+
+float hz2mel(int f,int htk)
+{
+	int f_0;
+	float f_sp;
+	int brkfrq;
+	float brkpt;
+	float logstep;
+	float z;
+
+	if(htk == 1)
+	{
+		z = 2595 * logf(10)*(1+(f/(float)(700)));
+	}
+	else
+	{
+		f_0 = 0;
+		f_sp = 200.0/3.0;
+		brkfrq = 1000;
+		brkpt = ((float)(brkfrq - f_0))/f_sp;
+		logstep = exp(logf(6.4)/27);
+		if(f<brkfrq)
+		{
+			z = (float)(f - f_0)/f_sp;
+		}
+		else
+		{
+			z = brkpt+(logf(f)/brkfrq)/(logf(logstep));
+		}
+	}
+	return z;
+}
+
+float mel2hz(float z,int htk)
+{
+	int f_0;
+	float f_sp;
+	int brkfrq;
+	float brkpt;
+	float logstep;
+	int linpts;
+	float f;
+
+	f = 0;
+
+	if(htk == 1)
+	{
+		f = 700*(pow(10,(z/2595)) - 1);
+	}
+	else
+	{
+		f_0 = 0;
+		f_sp = 200.0/3.0;
+		brkfrq = 1000;
+		brkpt = ((float)(brkfrq - f_0))/f_sp;
+		logstep = exp(logf(6.4)/27);
+
+		if(z < brkpt)
+		{
+			f = f_0 + f_sp*z;
+		}
+		else
+		{
+			f = brkfrq*exp(logf(logstep)*(z-brkpt));
+		}
+	}
+
+	return f;
+
+
+
+}
+
+PowerSpec* newPowerSpec(int size)
+{
+	PowerSpec* inPowerSpec = (PowerSpec*)malloc(sizeof(PowerSpec));
+	inPowerSpec->fft_outputBuffer = (float *)calloc(size,sizeof(float));
+	inPowerSpec->mel_error = 0;
+	inPowerSpec->size = 0;
+	return inPowerSpec;
+}
+
+float* hanning(int winpts,Variables *inParam)
+{
+	float* hanning_window = (float *)calloc(winpts,sizeof(float));
+	int i;
+
+	for(i = 1;i<=winpts;i++)
+	{
+		hanning_window[i-1] = 0.5*(1-cosf(2*PI*i/(float)(winpts)));
+	}
+
+	return hanning_window;
+}
 
 void DecideVad(Variables *inParam)
 {
@@ -144,8 +407,6 @@ void DecideVad(Variables *inParam)
 	{
 		qb++;
 	}
-	inParam->outputBuffer[3] = qb;
-	inParam->outputBuffer[4] = Nf;
 
 	Tqb = inParam->Dbufsort[qb];
 	if(inParam->Firstrunflag)
@@ -181,7 +442,6 @@ void DecideVad(Variables *inParam)
 		}
 	}
 	inParam->monitor++;
-	inParam->outputBuffer[0] = inParam->VadDec;
 }
 
 static void
@@ -197,8 +457,7 @@ compute(JNIEnv *env, jobject thiz,  jlong memoryPointer, jshortArray input)
     int i,j,overlap, stepsize,order,index;
     order = 12;
     stepsize = inParam->stepSize;
-    float* xL=(float*)calloc(stepsize,sizeof(float));
-	float* xH=(float*)calloc(stepsize,sizeof(float));
+
     	float XL_temp = 0;
     	float XH_temp = 0;
 
@@ -250,6 +509,7 @@ compute(JNIEnv *env, jobject thiz,  jlong memoryPointer, jshortArray input)
     	}
 
     	DecideVad(inParam);
+    	melfcc(inParam);
     /*for(i=0;i<stepsize;i++)
     {
         inParam->outputBuffer[i] = inParam->inputBuffer[overlap+i]*0.5f;
@@ -268,6 +528,7 @@ static jlong
 initialize(JNIEnv* env, jobject thiz, jint freq, jint stepsize, jint windowsize)
 {
     Variables* inParam = (Variables*) malloc(sizeof(Variables));
+    inParam->inMelfcc = (Melfcc*) malloc(sizeof(Melfcc));
     inParam->timer = newTimer();
     inParam->frequency = freq;
     inParam->stepSize = stepsize;
@@ -278,6 +539,7 @@ initialize(JNIEnv* env, jobject thiz, jint freq, jint stepsize, jint windowsize)
     //inParam->inputBuffer = (float*) calloc(windowsize,sizeof(float));
     //inParam->outputBuffer = (float*) malloc(stepsize*sizeof(float));
     inParam->outputBuffer = (float*) calloc(stepsize,sizeof(float));
+    inParam->testBuffer = (float*) calloc(windowsize,sizeof(float));
     //-----------------------TVPhamVAD-----------------------------------------
     int winSize = inParam->stepSize;
 	int Na = winSize/2;
@@ -304,7 +566,30 @@ initialize(JNIEnv* env, jobject thiz, jint freq, jint stepsize, jint windowsize)
     //initialTVPhamVAD(inParam);
 	//-----------------------Monitor--------------------------------------------
 	inParam->monitor = 0;
+	//--------------------------------------------------------------------------
+	melfcc_Initial(inParam->inMelfcc,inParam->frequency);
+
     return (jlong)inParam;
+}
+
+void melfcc_Initial(Melfcc* inMelfcc,int freq)
+{
+	inMelfcc->wintime = 0.011;
+	inMelfcc->hoptime = 0.005;
+	inMelfcc->numcep = 13;
+	inMelfcc->lifterexp = 0.6;
+	inMelfcc->sumpower = 1;
+	inMelfcc->preemph = 0;
+	inMelfcc->dither = 0;
+	inMelfcc->minfreq = 0;
+	inMelfcc->maxfreq = freq/2;
+	inMelfcc->nbands = 40;
+	inMelfcc->bwidth = 1.0;
+	inMelfcc->dcttype = 2;
+	inMelfcc->usecmp = 0;
+	inMelfcc->modelorder = 0;
+	inMelfcc->boraden = 0;
+	inMelfcc->useenergy = 0;
 }
 
 static void
@@ -386,13 +671,21 @@ getDebug(JNIEnv* env, jobject thiz, jlong memoryPointer, jint debugSelect)
         (*env)->ReleaseFloatArrayElements(env, debugOutput, _debugOutput, 0);
     } else if (debugSelect == 1) {  //Test Case 2 - outputBuffer contents
 
-        debugOutput = (*env)->NewFloatArray(env, inParam->stepSize);
+        /*debugOutput = (*env)->NewFloatArray(env, inParam->stepSize);
         float *_debugOutput = (*env)->GetFloatArrayElements(env, debugOutput, NULL);
 
         int i;
         for (i=0; i<inParam->stepSize;i++)
         {
             _debugOutput[i] = inParam->outputBuffer[i];
+        }*/
+
+    	debugOutput = (*env)->NewFloatArray(env, inParam->windowSize);
+    	float *_debugOutput = (*env)->GetFloatArrayElements(env, debugOutput, NULL);
+    	int i;
+        for(i = 0;i<inParam->windowSize;i++)
+        {
+        	_debugOutput[i] = inParam->testBuffer[i];
         }
 
         (*env)->ReleaseFloatArrayElements(env, debugOutput, _debugOutput, 0);
