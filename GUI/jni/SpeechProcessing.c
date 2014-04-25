@@ -3,8 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "Timer.h"
-#include "Transform.c"
 #include "Transforms.h"
+#include "mel_functions.h"
+#include "logMMSE_functions.h"
 
 #define PI 3.14159265
 
@@ -58,11 +59,11 @@ typedef struct Variables {
 	Melfcc* inMelfcc;
 } Variables;
 
-typedef struct PowerSpec{
+/*typedef struct PowerSpec{
 	float mel_error;
 	float* fft_outputBuffer;
 	float size;
-}PowerSpec;
+}PowerSpec;*/
 
 static const float LD[] =
 {
@@ -97,16 +98,14 @@ static const float HD[] =
 };
 
 void DecideVad(Variables *inParam);
-void melfcc(Variables *inParam);
-PowerSpec* powspec(Variables *inParam,float winpts,float steppts);
-void audspec(void);
-float* hanning(int winpts,Variables *inParam);
-void melfcc_Initial(Melfcc* inMelfcc, int freq);
-PowerSpec* newPowerSpec(int size);
-float hz2mel(int f,int htk);
-float mel2hz(float z,int htk);
+//void melfcc(Variables *inParam);
+//PowerSpec* powspec(Variables *inParam,float winpts,float steppts);
+//void audspec(void);
+//float* hanning(int winpts,Variables *inParam);
+//void melfcc_Initial(Melfcc* inMelfcc, int freq);
+//PowerSpec* newPowerSpec(int size);
 
-void melfcc(Variables *inParam)
+/*void melfcc(Variables *inParam)
 {
 	int i,j,index;
 	int stepsize,order,overlap;
@@ -133,7 +132,7 @@ void melfcc(Variables *inParam)
 	steppts = roundf(hoptime*sr);
 	zero_num = winpts - steppts;
 
-	/*for(i=0;i<inParam->windowSize;i++)
+	for(i=0;i<inParam->windowSize;i++)
 	{
 		pre_temp = 0;
 		for(j=0;j<order;j++)
@@ -148,12 +147,12 @@ void melfcc(Variables *inParam)
 			}
 		}
 		pre_emp_buffer[i] = pre_temp;
-	}*/
+	}
 
 	powspec(inParam,winpts,steppts);
-}
+}*/
 
-PowerSpec* powspec(Variables *inParam,float winpts,float steppts)
+/*PowerSpec* powspec(Variables *inParam,float winpts,float steppts)
 {
 	float steptime;
 	float wintime;
@@ -167,9 +166,9 @@ PowerSpec* powspec(Variables *inParam,float winpts,float steppts)
 	int z_pad_size;
 	int select;
 
-	/*inParam->testBuffer[0] = inParam->windowSize;
+	inParam->testBuffer[0] = inParam->windowSize;
 	inParam->testBuffer[1] = inParam->overlap;
-	inParam->testBuffer[2] = inParam->stepSize;*/
+	inParam->testBuffer[2] = inParam->stepSize;
 
 	NFFT = pow(2,(ceil(log(winpts)/log(2))));
 	Transform* inTransform = newTransform(1, NFFT);
@@ -212,13 +211,13 @@ PowerSpec* powspec(Variables *inParam,float winpts,float steppts)
 	destroyTransform(&inTransform);
 
 	return inPowerSpec;
-}
+}*/
 
-void audspec(Variables* inParam,PowerSpec* inPowerSpec)
+/*void audspec(Variables* inParam,PowerSpec* inPowerSpec)
 {
 	int nfreqs,nfft;
 	int nfilts,sr,width;
-	int minfreq,maxfreq;
+	float minfreq,maxfreq;
 	int htkmel = 0;
 	float minmel,maxmel,binfrqs;
 
@@ -230,85 +229,14 @@ void audspec(Variables* inParam,PowerSpec* inPowerSpec)
 	minfreq = inParam->inMelfcc->minfreq;
 	maxfreq = inParam->inMelfcc->maxfreq;
 
-	minmel = hz2mel(minfreq,htkmel);
-	maxmel = hz2mel(maxfreq,htkmel);
+	minmel = hz2mel(minfreq);
+	maxmel = hz2mel(maxfreq);
 
-	binfrqs = mel2hz();
-}
+	binfrqs = mel2hz(minmel+[]);
+	binfrqs = mel2hz(nfilts,)
+}*/
 
-float hz2mel(int f,int htk)
-{
-	int f_0;
-	float f_sp;
-	int brkfrq;
-	float brkpt;
-	float logstep;
-	float z;
-
-	if(htk == 1)
-	{
-		z = 2595 * logf(10)*(1+(f/(float)(700)));
-	}
-	else
-	{
-		f_0 = 0;
-		f_sp = 200.0/3.0;
-		brkfrq = 1000;
-		brkpt = ((float)(brkfrq - f_0))/f_sp;
-		logstep = exp(logf(6.4)/27);
-		if(f<brkfrq)
-		{
-			z = (float)(f - f_0)/f_sp;
-		}
-		else
-		{
-			z = brkpt+(logf(f)/brkfrq)/(logf(logstep));
-		}
-	}
-	return z;
-}
-
-float mel2hz(float z,int htk)
-{
-	int f_0;
-	float f_sp;
-	int brkfrq;
-	float brkpt;
-	float logstep;
-	int linpts;
-	float f;
-
-	f = 0;
-
-	if(htk == 1)
-	{
-		f = 700*(pow(10,(z/2595)) - 1);
-	}
-	else
-	{
-		f_0 = 0;
-		f_sp = 200.0/3.0;
-		brkfrq = 1000;
-		brkpt = ((float)(brkfrq - f_0))/f_sp;
-		logstep = exp(logf(6.4)/27);
-
-		if(z < brkpt)
-		{
-			f = f_0 + f_sp*z;
-		}
-		else
-		{
-			f = brkfrq*exp(logf(logstep)*(z-brkpt));
-		}
-	}
-
-	return f;
-
-
-
-}
-
-PowerSpec* newPowerSpec(int size)
+/*PowerSpec* newPowerSpec(int size)
 {
 	PowerSpec* inPowerSpec = (PowerSpec*)malloc(sizeof(PowerSpec));
 	inPowerSpec->fft_outputBuffer = (float *)calloc(size,sizeof(float));
@@ -328,7 +256,7 @@ float* hanning(int winpts,Variables *inParam)
 	}
 
 	return hanning_window;
-}
+}*/
 
 void DecideVad(Variables *inParam)
 {
@@ -457,6 +385,7 @@ compute(JNIEnv *env, jobject thiz,  jlong memoryPointer, jshortArray input)
     int i,j,overlap, stepsize,order,index;
     order = 12;
     stepsize = inParam->stepSize;
+    float* cepstra;
 
     	float XL_temp = 0;
     	float XH_temp = 0;
@@ -509,7 +438,8 @@ compute(JNIEnv *env, jobject thiz,  jlong memoryPointer, jshortArray input)
     	}
 
     	DecideVad(inParam);
-    	melfcc(inParam);
+    	cepstra = melfcc(inParam->inputBuffer);
+    	//melfcc(inParam);
     /*for(i=0;i<stepsize;i++)
     {
         inParam->outputBuffer[i] = inParam->inputBuffer[overlap+i]*0.5f;
